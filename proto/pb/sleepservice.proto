@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package sleepservice;
+
+service SleepTasker {
+  rpc Sleep (SleepTask) returns (SleepResponse) {}
+  rpc SleepStream (SleepTasks) returns (stream SleepResponse) {}
+}
+
+message SleepTask {
+  string name = 1;
+  float sleepSeconds = 2;
+}
+
+message SleepTasks {
+  string name = 1;
+  float sleepSeconds = 2;
+  int32 count = 3;
+}
+
+message SleepResponse {
+  int32 id = 1;
+  string message = 2;
+}
