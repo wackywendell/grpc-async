@@ -152,3 +152,12 @@ class AsyncStream:
     async def __anext__(self):
         value = await self._next()
         return value
+
+
+class AsyncStreamer:
+    def __init__(self, func):
+        self.func = func
+
+    def __call__(self, req):
+        stream = self.func(req)
+        return AsyncStream(stream)

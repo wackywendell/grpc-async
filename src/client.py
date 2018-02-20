@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime
 import sys
 
-from ipatch import FutureWrapper, AsyncStream
+from async_grpc import AsyncStreamer, FutureWrapper
 
 import pb.sleepservice_pb2 as pbss
 import pb.sleepservice_pb2_grpc as pbssg
@@ -95,15 +95,6 @@ def async_stream_sleep(stub, args):
         streams = [consume(streamer(r)) for r in reqs]
         task = asyncio.gather(*streams)
         async_run(task)
-
-
-class AsyncStreamer:
-    def __init__(self, func):
-        self.func = func
-
-    def __call__(self, req):
-        stream = self.func(req)
-        return AsyncStream(stream)
 
 
 def run():

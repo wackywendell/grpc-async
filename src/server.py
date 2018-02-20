@@ -16,6 +16,7 @@ class SleepServer(pbssg.SleepTaskerServicer):
         id, self.last_id = self.last_id, self.last_id + 1
         message = f'response to {request.name}({request.sleepSeconds})'
         resp = pbss.SleepResponse(message=message, id=id)
+        print(f"{id} - {request.name}")
         return resp
 
     def SleepStream(self, request, context):
