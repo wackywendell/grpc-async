@@ -24,7 +24,8 @@ class SleepServer(pbssg.SleepTaskerServicer):
             id, self.last_id = self.last_id, self.last_id + 1
             message = f'response to {request.name}({request.sleepSeconds}, {request.count})'
             resp = pbss.SleepResponse(message=message, id=id)
-            print("Responding:", resp)
+            remaining = request.count - n - 1
+            print(f"{id} ({remaining}) {request.name}")
             yield resp
 
 

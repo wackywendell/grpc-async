@@ -1,6 +1,10 @@
 import asyncio
 from argparse import ArgumentParser
+from contextlib import contextmanager
 from datetime import datetime
+import sys
+
+from ipatch import FutureWrapper, AsyncStream
 
 import pb.sleepservice_pb2 as pbss
 import pb.sleepservice_pb2_grpc as pbssg
@@ -29,31 +33,19 @@ multi_parser.add_argument(
 multi_parser.add_argument('-n', '--count', default=3, type=int, help="Count")
 
 
+@contextmanager
+def time_printer():
+    s = datetime.now()
+    yield
+    e = datetime.now()
+    print("Finished after", e - s)
+
+
 def simple_sleep(stub, args):
-    req = pbss.SleepTask(name='single', sleepSeconds=2.0)
-    resp = stub.Sleep(req)
-    print(resp.id, resp.message)
-
-
-class FutureWrapper:
-    # Inspired by https://github.com/grpc/grpc/issues/6046#issuecomment-319547191
-    def __init__(self, func):
-        self.func = func
-
-    def _fwrap(self, future, grpc_future):
-        try:
-            future.set_result(grpc_future.result())
-        except Exception as e:
-            future.set_exception(e)
-
-    def __call__(self, req, loop=None):
-        grpc_future = self.func.future(req)
-        future = asyncio.Future()
-        loop = asyncio.get_event_loop() if loop is None else loop
-        grpc_future.add_done_callback(
-            lambda _: loop.call_soon_threadsafe(self._fwrap, future, grpc_future)
-        )
-        return future
+    with time_printer():
+        req = pbss.SleepTask(name='single', sleepSeconds=2.0)
+        resp = stub.Sleep(req)
+        print(resp.id, resp.message)
 
 
 async def sleep_task(stub, n):
@@ -64,74 +56,45 @@ async def sleep_task(stub, n):
     print(resp.id, resp.message)
 
 
-def loop_run(task):
-    s = datetime.now()
+def async_run(task):
     loop = asyncio.get_event_loop()
     loop.run_until_complete(task)
     loop.close()
-    e = datetime.now()
-
-    print("Finished after", e - s)
 
 
 def multi_sleep(stub, args):
-    tasks = [sleep_task(stub, n) for n in args.times]
-    gathered = asyncio.gather(*tasks)
-    loop_run(gathered)
+    with time_printer():
+        tasks = [sleep_task(stub, n) for n in args.times]
+        gathered = asyncio.gather(*tasks)
+        async_run(gathered)
 
 
 def stream_sleep(stub, args):
-    s = datetime.now()
-    req = pbss.SleepTasks(
-        name='stream', sleepSeconds=args.time, count=args.count)
-    stream = stub.SleepStream(req)
-    print(dir(stream))
-    stream.add_callback(lambda: print("callback"))
-    stream.add_done_callback(lambda x: print("callback:", x))
-    import pudb
-    pu.db
-    for resp in stream:
-        print(resp.id, resp.message)
+    with time_printer():
+        req = pbss.SleepTasks(
+            name='stream', sleepSeconds=args.time, count=args.count)
+        stream = stub.SleepStream(req)
 
-    e = datetime.now()
-    print("Finished after", e - s)
-
-
-def async_stream_sleep(stub, args):
-    s = datetime.now()
-    req = pbss.SleepTasks(
-        name='stream', sleepSeconds=args.time, count=args.count)
-    streamer = AsyncStreamer(stub.SleepStream)
-    stream = streamer(req)
-    print(dir(stream))
-    #stream.add_callback(lambda: print("callback"))
-    #stream.add_done_callback(lambda x: print("callback:", x))
-
-    for resp in stream:
-        print(resp.result())
-
-    e = datetime.now()
-    print("Finished after", e - s)
+        for resp in stream:
+            print(resp.id, resp.message)
 
 
 async def consume(stream):
-    print("consume")
     async for resp in stream:
-        print("consume in for")
         print(resp.id, resp.message)
 
 
 def async_stream_sleep(stub, args):
-    s = datetime.now()
-    req = pbss.SleepTasks(
-        name='stream', sleepSeconds=args.time, count=args.count)
-    streamer = AsyncStreamer(stub.SleepStream)
-    stream = streamer(req)
-
-    loop_run(consume(stream))
-
-    e = datetime.now()
-    print("Finished after", e - s)
+    with time_printer():
+        streamer = AsyncStreamer(stub.SleepStream)
+        reqs = [
+            pbss.SleepTasks(
+                name='stream-%s' % c, sleepSeconds=args.time, count=args.count)
+            for c in 'ABC'
+        ]
+        streams = [consume(streamer(r)) for r in reqs]
+        task = asyncio.gather(*streams)
+        async_run(task)
 
 
 class AsyncStreamer:
@@ -140,17 +103,7 @@ class AsyncStreamer:
 
     def __call__(self, req):
         stream = self.func(req)
-        from ipatch import AsyncStream
         return AsyncStream(stream)
-
-        # from ipatch import patch_iterator
-        # patch_iterator(iter)
-
-        #for fut in iter:
-        #    try:
-        #        thing = yield fut
-        #    except StopIteration:
-        #        break
 
 
 def run():
@@ -158,7 +111,6 @@ def run():
 
     channel = grpc.insecure_channel('localhost:50051')
     stub = pbssg.SleepTaskerStub(channel)
-
     if args.subparser == 'single':
         simple_sleep(stub, args)
     elif args.subparser == 'multi':
@@ -172,4 +124,11 @@ def run():
 
 
 if __name__ == '__main__':
-    run()
+    try:
+        run()
+    except grpc.RpcError as e:
+        print("GRPC RpcError {code}: {desc}".format(
+            code=e.code(), desc=e.details()))
+    except KeyboardInterrupt:
+        print("Interrupted.")
+        sys.exit(1)
